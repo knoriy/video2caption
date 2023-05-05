@@ -5,6 +5,8 @@ import torch
 import open_clip
 from whisper_jax import FlaxWhisperPipline
 
+import torchmetrics
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 from datamodule import YoutubeTDM
@@ -38,6 +40,37 @@ def inference_caption(image, decoding_method="Beam search", rep_penalty=1.2, top
             repetition_penalty=float(rep_penalty)
         )
     return open_clip.decode(generated[0].detach()).split("<end_of_text>")[0].replace("<start_of_text>", "")
+
+
+def get_strategy(strategy:str='mse'):
+    if strategy == 'mse':
+        return torch.nn.MSELoss()
+    elif strategy == 'ssim':
+        return torchmetrics.StructuralSimilarityIndexMeasure()
+    else:
+        raise ValueError(f"Strategy {strategy} not supported")
+
+
+def get_video_frames(frames, strategy:str='mse', threshold=0.5):
+    strategy = get_strategy(strategy)
+
+    frames = (frames/255).unsqueeze(1).permute(0,1,4,2,3)
+
+    video_frames = []
+    for frame in frames:
+        if not len(video_frames):
+            video_frames.append(frame)
+            continue
+
+        difference = strategy(video_frames[-1], frame)
+
+        if strategy == 'mse':
+            difference = 1-difference
+
+        if difference > threshold:
+            video_frames.append()
+
+    return video_frames
 
 def main(urls:list[str], exclude_list:list[str]=[]):
     dataset = YoutubeTDM(
