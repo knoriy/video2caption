@@ -8,6 +8,7 @@ from whisper_jax import FlaxWhisperPipline
 
 import torchmetrics
 import torchvision as tv
+import torchaudio as ta
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -84,20 +85,33 @@ def main(urls:list[str], exclude_list:list[str]=[]):
         (video_frames, audio_frames, meta), json_meta = video
 
         if audio_frames.size(0) > 1:
-            audio_frames = audio_frames[0]
+            audio_frames = ((audio_frames[0] + audio_frames[1]) / 2 )
 
         audio_sample = {"array": audio_frames.numpy(), 'sampling_rate':meta["audio_fps"]}
 
         text = whisperjax_model(audio_sample, return_timestamps=True)
 
-        for chunk_index, chunk in enumerate(text["chunks"]):
-            start_frame = int(chunk["timestamp"][0]*meta["video_fps"])
-            end_frame = int(chunk["timestamp"][1]*meta["video_fps"])
+        ###########
+        # Resample Audio to be saved
+        ###########
+        meta["audio_fps"] = resamplerate = 48000
+        audio_frames = ta.transforms.Resample(meta["audio_fps"], 48000)(audio_frames.unsqueeze(0))
 
-            frames = get_video_frames(video_frames[start_frame:end_frame], strategy='ssim', threshold=0.9)
+        for chunk_index, chunk in enumerate(text["chunks"]):
+            start_v_frame = int(chunk["timestamp"][0]*meta["video_fps"])
+            end_v_frame = int(chunk["timestamp"][1]*meta["video_fps"])
+
+            start_a_frame = int(chunk["timestamp"][0]*meta["audio_fps"])
+            end_a_frame = int(chunk["timestamp"][1]*meta["audio_fps"])
+
+            frames = get_video_frames(video_frames[start_v_frame:end_v_frame], strategy='ssim', threshold=0.9)
+
+            # save audio chunk
+            audio_filename = os.path.join(base_path, f'{filename}_{chunk_index}')
+            ta.save(f"{audio_filename}.flac", audio_frames[0][start_a_frame: end_a_frame].unsqueeze(0), resamplerate)
 
             for frame_index, (i, frame) in enumerate(frames):
-                captions = {'frame':i+start_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))}
+                captions = {'frame':i+start_v_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))}
                 _data = {"captions": captions, "gender": None, "emotion": None, "text": chunk['text'], "timestamp": chunk["timestamp"]}
 
                 ###########
@@ -106,13 +120,13 @@ def main(urls:list[str], exclude_list:list[str]=[]):
                 base_path, filename = json_meta["filename"].split("/")
                 base_path = os.path.join("data", base_path)
 
-                filename = os.path.join(base_path, f'{filename}_{chunk_index}_{frame_index}')
+                frame_filename = os.path.join(base_path, f'{filename}_{chunk_index}_{frame_index}')
 
                 os.makedirs(base_path, exist_ok=True)
-
-                tv.utils.save_image(frame.permute(2,0,1)/255, f"{filename}.jpg")
-                with open(f"{filename}.json", "w") as f:
+                tv.utils.save_image(frame.permute(2,0,1)/255, f"{frame_filename}.jpg")
+                with open(f"{frame_filename}.json", "w") as f:
                     json.dump(_data, f)
+            breakpoint()
 
         complete.append({"filename":json_meta["filename"] ,"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
         breakpoint()
