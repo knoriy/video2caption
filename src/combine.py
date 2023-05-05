@@ -110,10 +110,11 @@ def main(urls:list[str], exclude_list:list[str]=[]):
 
             base_path, filename = json_meta["filename"].split("/")
             base_path = os.path.join("data", base_path)
-            os.makedirs(base_path, exist_ok=True)
 
-            audio_filename = os.path.join(base_path, f'{filename}_{chunk_index}')
-            ta.save(f"{audio_filename}.flac", audio_frames[0][start_a_frame: end_a_frame].unsqueeze(0), resamplerate)
+            filename = os.path.join(base_path, f'{filename}')
+            os.makedirs(filename, exist_ok=True)
+
+            ta.save(f"{filename}/{chunk_index}.flac", audio_frames[0][start_a_frame: end_a_frame].unsqueeze(0), resamplerate)
 
             for frame_index, (i, frame) in enumerate(frames):
                 captions = {'frame':i+start_v_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))}
@@ -122,13 +123,11 @@ def main(urls:list[str], exclude_list:list[str]=[]):
                 ###########
                 # save to file
                 ###########
-                frame_filename = os.path.join(base_path, f'{filename}_{chunk_index}_{frame_index}')
-                tv.utils.save_image(frame.permute(2,0,1)/255, f"{frame_filename}.jpg")
-                with open(f"{frame_filename}.json", "w") as f:
+                tv.utils.save_image(frame.permute(2,0,1)/255, f"{filename}/{chunk_index}_{frame_index}.jpg")
+                with open(f"{filename}/{chunk_index}_{frame_index}.json", "w") as f:
                     json.dump(_data, f)
 
         complete.append({"filename":json_meta["filename"] ,"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
-        breakpoint()
 
     return complete
 
