@@ -126,7 +126,6 @@ def main(urls:list[str], exclude_list:list[str]=[]):
                 tv.utils.save_image(frame.permute(2,0,1)/255, f"{frame_filename}.jpg")
                 with open(f"{frame_filename}.json", "w") as f:
                     json.dump(_data, f)
-            breakpoint()
 
         complete.append({"filename":json_meta["filename"] ,"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
         breakpoint()
