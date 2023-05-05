@@ -1,3 +1,4 @@
+import os
 import sys
 import PIL
 import json
@@ -6,6 +7,7 @@ import open_clip
 from whisper_jax import FlaxWhisperPipline
 
 import torchmetrics
+import torchvision as tv
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -69,7 +71,7 @@ def get_video_frames(frames, strategy:str='mse', threshold=0.5):
         if difference > threshold:
             video_frames.append((i, frame))
 
-    return [(frame[0], (frame[1].squeeze(0).permute(1,2,0)*255).type(torch.uint8)) for frame in video_frames]
+    return [(i, (frame.squeeze(0).permute(1,2,0)*255).type(torch.uint8)) for (i, frame) in video_frames]
 
 def main(urls:list[str], exclude_list:list[str]=[]):
     dataset = YoutubeTDM(
@@ -87,28 +89,35 @@ def main(urls:list[str], exclude_list:list[str]=[]):
         audio_sample = {"array": audio_frames.numpy(), 'sampling_rate':meta["audio_fps"]}
 
         text = whisperjax_model(audio_sample, return_timestamps=True)
-        data = []
-        for chunk in text["chunks"]:
+
+        for chunk_index, chunk in enumerate(text["chunks"]):
             start_frame = int(chunk["timestamp"][0]*meta["video_fps"])
             end_frame = int(chunk["timestamp"][1]*meta["video_fps"])
 
-            frames = get_video_frames(video_frames[start_frame:end_frame])
+            frames = get_video_frames(video_frames[start_frame:end_frame], strategy='ssim', threshold=0.9)
 
-            captions = [{
-                'frame':i+start_frame,
-                "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 
-                'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))} for (i, frame) in frames]
-            
-            data.append({"captions": captions, "gender": None, "emotion": None, "text": chunk['text'], "timestamp": chunk["timestamp"]})
+            for frame_index, (i, frame) in enumerate(frames):
+                captions = {'frame':i+start_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))}
+                _data = {"captions": captions, "gender": None, "emotion": None, "text": chunk['text'], "timestamp": chunk["timestamp"]}
 
-        ###########
-        # DO SOMETING WITH DATA
-        ###########
+                ###########
+                # save to file
+                ###########
+                base_path, filename = json_meta["filename"].split("/")
+                base_path = os.path.join("data", base_path)
+
+                filename = os.path.join(base_path, f'{filename}_{chunk_index}_{frame_index}')
+
+                os.makedirs(base_path, exist_ok=True)
+
+                tv.utils.save_image(frame.permute(2,0,1)/255, f"{filename}.jpg")
+                with open(f"{filename}.json", "w") as f:
+                    json.dump(_data, f)
 
         complete.append({"filename":json_meta["filename"] ,"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
         breakpoint()
 
-    return data
+    return complete
 
 
 # Signal Handeling
