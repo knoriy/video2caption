@@ -93,7 +93,6 @@ def main(urls:list[str], exclude_list:list[str]=[]):
             end_frame = int(chunk["timestamp"][1]*meta["video_fps"])
 
             frames = get_video_frames(video_frames[start_frame:end_frame])
-            breakpoint()
 
             captions = [{
                 'frame':i+start_frame,
@@ -106,7 +105,9 @@ def main(urls:list[str], exclude_list:list[str]=[]):
         # DO SOMETING WITH DATA
         ###########
 
-        complete.append({"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
+        complete.append({"filename":json_meta["filename"] ,"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
+        breakpoint()
+
     return data
 
 
@@ -128,5 +129,12 @@ if __name__ == '__main__':
     # catch signal
     signal.signal(signal.SIGTERM, terminateProcess)
 
-    pprint.pprint(main(["s3://s-laion/documentaries-videos/00000/"]))
+    try:
+        with open("completed.json", "r") as f:
+            complete = json.load(f)
+        exclude_list = [item["filename"] for item in complete]
+    except FileNotFoundError:
+        exclude_list = []
+
+    pprint.pprint(main(["s3://s-laion/documentaries-videos/00000/"], exclude_list=exclude_list))
     terminateProcess(None, None)

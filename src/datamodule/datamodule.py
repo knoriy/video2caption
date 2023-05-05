@@ -14,7 +14,7 @@ class YoutubeTDM(BaseTDM):
 		self.exclude_list = exclude_list
 
 	def filter_fn(self, data):
-		file_name = os.path.basename(data[0][0]).split(".")[0]
+		file_name = os.path.join(*data[0][0].split("/")[-2:]).split(".")[0]
 		if file_name in self.exclude_list:
 			return False
 		return True
@@ -23,9 +23,9 @@ class YoutubeTDM(BaseTDM):
 		meta = data[0]
 		video = data[1]
 		
-		video_frames, audio_frames, av_meta = read_video(video[1], pts_unit="sec")
+		video_frames, audio_frames, av_meta = read_video(video[1], pts_unit="sec", end_pts=10)
 		json_meta = json.load(meta[1])
-		json_meta['filename'] = os.path.basename(video[0]).split(".")[0]
+		json_meta['filename'] = os.path.join(*video[0].split("/")[-2:]).split(".")[0]
 
 		return (video_frames, audio_frames, av_meta), json_meta
 
