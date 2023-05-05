@@ -107,6 +107,11 @@ def main(urls:list[str], exclude_list:list[str]=[]):
             frames = get_video_frames(video_frames[start_v_frame:end_v_frame], strategy='ssim', threshold=0.9)
 
             # save audio chunk
+
+            base_path, filename = json_meta["filename"].split("/")
+            base_path = os.path.join("data", base_path)
+            os.makedirs(base_path, exist_ok=True)
+
             audio_filename = os.path.join(base_path, f'{filename}_{chunk_index}')
             ta.save(f"{audio_filename}.flac", audio_frames[0][start_a_frame: end_a_frame].unsqueeze(0), resamplerate)
 
@@ -117,12 +122,7 @@ def main(urls:list[str], exclude_list:list[str]=[]):
                 ###########
                 # save to file
                 ###########
-                base_path, filename = json_meta["filename"].split("/")
-                base_path = os.path.join("data", base_path)
-
                 frame_filename = os.path.join(base_path, f'{filename}_{chunk_index}_{frame_index}')
-
-                os.makedirs(base_path, exist_ok=True)
                 tv.utils.save_image(frame.permute(2,0,1)/255, f"{frame_filename}.jpg")
                 with open(f"{frame_filename}.json", "w") as f:
                     json.dump(_data, f)
