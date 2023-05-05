@@ -57,20 +57,19 @@ def get_video_frames(frames, strategy:str='mse', threshold=0.5):
     frames = (frames/255).unsqueeze(1).permute(0,1,4,2,3)
 
     video_frames = []
-    for frame in frames:
+    for i, frame in enumerate(frames):
         if not len(video_frames):
-            video_frames.append(frame)
-            continue
+            video_frames.append((i, frame))
 
-        difference = strategy(video_frames[-1], frame)
+        difference = strategy(video_frames[-1][1], frame)
 
         if strategy == 'mse':
             difference = 1-difference
 
         if difference > threshold:
-            video_frames.append()
+            video_frames.append((i, frame))
 
-    return video_frames
+    return [(frame[0], (frame[1].squeeze(0).permute(1,2,0)*255).type(torch.uint8)) for frame in video_frames]
 
 def main(urls:list[str], exclude_list:list[str]=[]):
     dataset = YoutubeTDM(
@@ -90,15 +89,24 @@ def main(urls:list[str], exclude_list:list[str]=[]):
         text = whisperjax_model(audio_sample, return_timestamps=True)
         data = []
         for chunk in text["chunks"]:
-            mean_frame = (sum(chunk["timestamp"])/2)/60 # A better frame selection strategy could be used here
-            frame = video_frames[int(mean_frame*meta["video_fps"])]
+            start_frame = int(chunk["timestamp"][0]*meta["video_fps"])
+            end_frame = int(chunk["timestamp"][1]*meta["video_fps"])
 
-            caption = inference_caption(PIL.Image.fromarray(frame.numpy()))
-            data.append({"caption": caption, "gender": None, "emotion": None, "text": chunk['text'], "timestamp": chunk["timestamp"]})
+            frames = get_video_frames(video_frames[start_frame:end_frame])
+            breakpoint()
 
-        complete.append({"id": json_meta["id"], "data": data})
-        break
+            captions = [{
+                'frame':i+start_frame,
+                "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 
+                'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))} for (i, frame) in frames]
+            
+            data.append({"captions": captions, "gender": None, "emotion": None, "text": chunk['text'], "timestamp": chunk["timestamp"]})
 
+        ###########
+        # DO SOMETING WITH DATA
+        ###########
+
+        complete.append({"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
     return data
 
 
@@ -120,4 +128,5 @@ if __name__ == '__main__':
     # catch signal
     signal.signal(signal.SIGTERM, terminateProcess)
 
-    pprint.pprint(main(["s3://s-laion/documentaries/00000/"]))
+    pprint.pprint(main(["s3://s-laion/documentaries-videos/00000/"]))
+    terminateProcess(None, None)
