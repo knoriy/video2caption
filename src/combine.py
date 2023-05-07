@@ -3,6 +3,7 @@ import io
 import sys
 import PIL
 import json
+import tqdm
 import torch
 import open_clip
 import tarfile
@@ -125,11 +126,14 @@ def main(urls:list[str], exclude_list:list[str]=[]):
         )
     dataset.setup()
 
-    for video in dataset.train:
+    for video in tqdm.tqdm(dataset.train):
         (video_frames, audio_frames, meta), json_meta = video
+        del json_meta['yt_meta_dict']['subtitles']
 
         if audio_frames.size(0) > 1:
             audio_frames = ((audio_frames[0] + audio_frames[1]) / 2 )
+        else:
+            audio_frames = audio_frames[0]
 
         audio_sample = {"array": audio_frames.numpy(), 'sampling_rate':meta["audio_fps"]}
 
@@ -153,22 +157,38 @@ def main(urls:list[str], exclude_list:list[str]=[]):
             # save audio chunk
 
             base_path, filename = json_meta["filename"].split("/")
-            base_path = os.path.join("data", base_path)
-            os.makedirs(base_path, exist_ok=True)
+            os.makedirs(os.path.join('processes', base_path), exist_ok=True)
 
             filename = os.path.join(base_path, f'{filename}')
-            ta.save(f"{filename}_{chunk_index}.flac", audio_frames[0][start_a_frame: end_a_frame].unsqueeze(0), resamplerate)
+            with tarfile.open(os.path.join('processes', f"{filename}.tar"), mode='a') as tar:
+                buffer = io.BytesIO()
+                ta.save(buffer, audio_frames[0][start_a_frame: end_a_frame].unsqueeze(0), resamplerate, format='flac')
+                buffer.seek(0)
+                audio_info = tarfile.TarInfo(f"{filename}_{chunk_index}.flac")
+                audio_info.size = buffer.getbuffer().nbytes
+                tar.addfile(audio_info, fileobj=buffer)
 
-            captions = {}
-            for frame_index, (i, frame) in enumerate(frames):
-                path = f"{filename}_{chunk_index}_{frame_index}.jpg"
-                captions[frame_index] = {"framepath":path ,'frame':i+start_v_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))}
-                tv.utils.save_image(frame.permute(2,0,1)/255, path)
-            
-            _data = {'filepath':os.path.join(*filename.split('/')[1:]), "captions": captions, "gender": None, "emotion": None, "text": chunk['text'], "timestamp": chunk["timestamp"]}
-            with open(f"{filename}_{chunk_index}.json", "w") as f:
-                json.dump(_data, f)
+                captions = {}
+                for frame_index, (i, frame) in enumerate(frames):
+                    path = f"{filename}_{chunk_index}_{frame_index}.jpg"
+                    captions[frame_index] = {"framepath":path ,'frame':i+start_v_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))}
+                    
+                    buffer = io.BytesIO()
+                    tv.utils.save_image(frame.permute(2,0,1)/255, buffer, format='jpeg')
+                    buffer.seek(0)
+                    info = tarfile.TarInfo(path)
+                    info.size = buffer.getbuffer().nbytes
+                    tar.addfile(info, fileobj=buffer)
 
+                _data = {'filepath':os.path.join(*filename.split('/')[1:]), "captions": captions, "gender": None, "emotion": None, "text": chunk['text'], "timestamp": chunk["timestamp"], "original_data": json_meta}
+
+                buffer = io.BytesIO()
+                json_bytes = json.dumps(_data, ensure_ascii=False).encode('utf-8')
+                buffer.write(json_bytes)
+                buffer.seek(0)
+                text_info = tarfile.TarInfo(f"{filename}_{chunk_index}.json")
+                text_info.size = buffer.getbuffer().nbytes
+                tar.addfile(text_info, fileobj=buffer)
         complete.append({"filename":json_meta["filename"] ,"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
 
     return complete

@@ -23,7 +23,7 @@ class YoutubeTDM(BaseTDM):
 		meta = data[0]
 		video = data[1]
 		
-		video_frames, audio_frames, av_meta = read_video(video[1], pts_unit="sec", end_pts=30)
+		video_frames, audio_frames, av_meta = read_video(video[1], pts_unit="sec")
 		json_meta = json.load(meta[1])
 		json_meta['filename'] = os.path.join(*video[0].split("/")[-2:]).split(".")[0]
 
