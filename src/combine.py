@@ -77,48 +77,6 @@ def get_video_frames(frames, strategy:str='mse', threshold=0.5):
 
     return [(i, (frame.squeeze(0).permute(1,2,0)*255).type(torch.uint8)) for (i, frame) in video_frames]
 
-def create_tar_file(data_list):
-    filedata = {}
-    for item in data_list:
-        filepath = item["path_tar"]
-        if filepath not in filedata:
-            filedata[filepath] = []
-        filedata[filepath].append(item)
-
-    out_tars_path = []
-    for tar_path in filedata:
-        local_tar_path = os.path.join("./", *tar_path.split('/')[-3:])
-        os.makedirs(os.path.dirname(local_tar_path), exist_ok=True)
-        with tarfile.open(local_tar_path, mode='a') as tar:
-            for data in filedata[tar_path]:
-                audio_file_name = data['path_audio'].split('/')[-1].replace('.flac', '.pt')
-                text_file_name = audio_file_name.replace('.pt', '.json')
-                audio_data = data['mel']
-                text_data = data['text']
-
-                # Add audio file to tar
-                buffer = io.BytesIO()
-                torch.save(audio_data, buffer)
-                buffer.seek(0)
-                audio_info = tarfile.TarInfo(audio_file_name)
-                audio_info.size = buffer.getbuffer().nbytes
-                tar.addfile(audio_info, fileobj=buffer)
-
-                # # Add text file to tar
-                buffer = io.BytesIO()
-                json_bytes = json.dumps(text_data, ensure_ascii=False).encode('utf-8')
-                buffer.write(json_bytes)
-                buffer.seek(0)
-                text_info = tarfile.TarInfo(text_file_name)
-                text_info.size = buffer.getbuffer().nbytes
-                tar.addfile(text_info, fileobj=buffer)
-
-        out_tars_path.append(local_tar_path)
-
-    return out_tars_path
-
-
-
 def main(urls:list[str], exclude_list:list[str]=[]):
     dataset = YoutubeTDM(
         train_urls=urls,
