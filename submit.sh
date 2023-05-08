@@ -7,9 +7,9 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --account laion
 #SBATCH --output=%x_%j.out
+#SBATCH --requeue
 #SBATCH --signal=SIGUSR1@90
 #SBATCH --signal=SIGTERM@90
-#SBATCH --exclude ip-26-0-134-43,ip-26-0-131-108,ip-26-0-140-150,ip-26-0-143-39,ip-26-0-128-136
 
 module load openmpi
 module load cuda/11.7
@@ -28,4 +28,4 @@ export FI_PROVIDER=efa
 export FI_EFA_TX_MIN_CREDITS=64
 export NCCL_TREE_THRESHOLD=0
 
-srun /fsx/home-knoriy/miniconda3/envs/hf/bin/python /fsx/knoriy/code/video2caption/src/combine.py
+srun /fsx/home-knoriy/miniconda3/envs/hf/bin/python /fsx/knoriy/code/video2caption/src/combine.py --urls "s3://s-laion/documentaries-videos/00005/"

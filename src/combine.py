@@ -7,6 +7,8 @@ import tqdm
 import torch
 import open_clip
 import tarfile
+
+from functools import partial
 from whisper_jax import FlaxWhisperPipline
 
 import torchmetrics
@@ -17,23 +19,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 from datamodule import YoutubeTDM
 
-whisperjax_model = FlaxWhisperPipline("openai/whisper-large-v2")
-model, _, transform = open_clip.create_model_and_transforms(
-    "coca_ViT-L-14",
-    pretrained="mscoco_finetuned_laion2B-s13B-b90k"
-)
-model.to(device)
-
-
 #############
 # create global completed list
 complete = []
 #############
 
-
-
-
-def inference_caption(image, decoding_method="Beam search", rep_penalty=1.2, top_p=0.5, min_seq_len=5, seq_len=20):
+def inference_caption(model, transform, image, decoding_method="Beam search", rep_penalty=1.2, top_p=0.5, min_seq_len=5, seq_len=20):
     im = transform(image).unsqueeze(0).to(device)
     generation_type = "beam_search" if decoding_method == "Beam search" else "top_p"
     with torch.no_grad(), torch.cuda.amp.autocast():
@@ -57,8 +48,7 @@ def get_strategy(strategy:str='mse'):
         raise ValueError(f"Strategy {strategy} not supported")
 
 
-def get_video_frames(frames, strategy:str='mse', threshold=0.5):
-    strategy = get_strategy(strategy)
+def get_video_frames(frames, strategy, threshold=0.5):
 
     frames = (frames/255).unsqueeze(1).permute(0,1,4,2,3)
 
@@ -80,12 +70,22 @@ def get_video_frames(frames, strategy:str='mse', threshold=0.5):
 
     return [(i, (frame.squeeze(0).permute(1,2,0)*255).type(torch.uint8)) for (i, frame) in video_frames]
 
-def main(urls:list[str], exclude_list:list[str]=[]):
+def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
     dataset = YoutubeTDM(
         train_urls=urls,
         exclude_list=exclude_list,
         )
     dataset.setup()
+
+
+    whisperjax_model = FlaxWhisperPipline("openai/whisper-large-v2")
+    model, _, transform = open_clip.create_model_and_transforms(
+        "coca_ViT-L-14",
+        pretrained="mscoco_finetuned_laion2B-s13B-b90k"
+    )
+    model.to(device)
+
+    strategy = get_strategy(strategy)
 
     for video in tqdm.tqdm(dataset.train, desc=f"Processing videos"):
         (video_frames, audio_frames, meta), json_meta = video
@@ -98,7 +98,6 @@ def main(urls:list[str], exclude_list:list[str]=[]):
 
         audio_sample = {"array": audio_frames.numpy(), 'sampling_rate':meta["audio_fps"]}
 
-        print("processing audio")
         text = whisperjax_model(audio_sample, return_timestamps=True)
 
         ###########
@@ -118,7 +117,7 @@ def main(urls:list[str], exclude_list:list[str]=[]):
                 end_v_frame = -1
                 end_a_frame = -1
 
-            frames = get_video_frames(video_frames[start_v_frame:end_v_frame], strategy='ssim', threshold=0.9)
+            frames = get_video_frames(video_frames[start_v_frame:end_v_frame], strategy, threshold=0.9)
 
             # save audio chunk
 
@@ -137,7 +136,7 @@ def main(urls:list[str], exclude_list:list[str]=[]):
                 captions = {}
                 for frame_index, (i, frame) in enumerate(frames):
                     path = f"{filename}_{chunk_index}_{frame_index}.jpg"
-                    captions[frame_index] = {"framepath":path ,'frame':i+start_v_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(PIL.Image.fromarray(frame.numpy()))}
+                    captions[frame_index] = {"framepath":path ,'frame':i+start_v_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(model, transform, PIL.Image.fromarray(frame.numpy()))}
                     
                     buffer = io.BytesIO()
                     tv.utils.save_image(frame.permute(2,0,1)/255, buffer, format='jpeg')
@@ -162,28 +161,37 @@ def main(urls:list[str], exclude_list:list[str]=[]):
 
 # Signal Handeling
 
-def terminateProcess(signalNumber, frame):
+def terminateProcess(signalNumber, frame, filename="completed.json"):
     print ('(SIGTERM) terminating the process')
 
     # Cache completed files
-    with open("completed.json", "w") as f:
+    with open(filename, "w") as f:
         json.dump(complete, f)
 
     sys.exit()
 
 if __name__ == '__main__':
+    import argparse
     import signal
     import pprint
 
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('--urls', type=str, nargs='+', help='urls to process')
+    args = parser.parse_args()
+
+    completed_path = f"completed_{'_'.join([os.path.basename(url) for url in args.urls])}.json"
+
     # catch signal
-    signal.signal(signal.SIGTERM, terminateProcess)
+    signal.signal(signal.SIGTERM, partial(terminateProcess, filename=completed_path))
+    signal.signal(signal.SIGUSR1, partial(terminateProcess, filename=completed_path))
 
     try:
-        with open("completed.json", "r") as f:
+        with open(completed_path, "r") as f:
             complete = json.load(f)
         exclude_list = [item["filename"] for item in complete]
     except FileNotFoundError:
         exclude_list = []
 
-    pprint.pprint(main(["s3://s-laion/documentaries-videos/00002/"], exclude_list=exclude_list))
+
+    pprint.pprint(main(args.urls, exclude_list=exclude_list))
     terminateProcess(None, None)
