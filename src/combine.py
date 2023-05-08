@@ -64,6 +64,9 @@ def get_video_frames(frames, strategy:str='mse', threshold=0.5):
 
     video_frames = []
     for i, frame in enumerate(frames):
+        if i % 10 !=0:
+            continue
+
         if not len(video_frames):
             video_frames.append((i, frame))
 
@@ -84,7 +87,7 @@ def main(urls:list[str], exclude_list:list[str]=[]):
         )
     dataset.setup()
 
-    for video in tqdm.tqdm(dataset.train):
+    for video in tqdm.tqdm(dataset.train, desc=f"Processing videos"):
         (video_frames, audio_frames, meta), json_meta = video
         del json_meta['yt_meta_dict']['subtitles']
 
@@ -95,6 +98,7 @@ def main(urls:list[str], exclude_list:list[str]=[]):
 
         audio_sample = {"array": audio_frames.numpy(), 'sampling_rate':meta["audio_fps"]}
 
+        print("processing audio")
         text = whisperjax_model(audio_sample, return_timestamps=True)
 
         ###########
@@ -103,12 +107,16 @@ def main(urls:list[str], exclude_list:list[str]=[]):
         meta["audio_fps"] = resamplerate = 48000
         audio_frames = ta.transforms.Resample(meta["audio_fps"], 48000)(audio_frames.unsqueeze(0))
 
-        for chunk_index, chunk in enumerate(text["chunks"]):
+        for chunk_index, chunk in enumerate(tqdm.tqdm(text["chunks"], desc=f"chunk")):
             start_v_frame = int(chunk["timestamp"][0]*meta["video_fps"])
-            end_v_frame = int(chunk["timestamp"][1]*meta["video_fps"])
-
             start_a_frame = int(chunk["timestamp"][0]*meta["audio_fps"])
-            end_a_frame = int(chunk["timestamp"][1]*meta["audio_fps"])
+
+            try:
+                end_v_frame = int(chunk["timestamp"][1]*meta["video_fps"])
+                end_a_frame = int(chunk["timestamp"][1]*meta["audio_fps"])
+            except:
+                end_v_frame = -1
+                end_a_frame = -1
 
             frames = get_video_frames(video_frames[start_v_frame:end_v_frame], strategy='ssim', threshold=0.9)
 
@@ -177,5 +185,5 @@ if __name__ == '__main__':
     except FileNotFoundError:
         exclude_list = []
 
-    pprint.pprint(main(["s3://s-laion/documentaries-videos/00000/"], exclude_list=exclude_list))
+    pprint.pprint(main(["s3://s-laion/documentaries-videos/00002/"], exclude_list=exclude_list))
     terminateProcess(None, None)

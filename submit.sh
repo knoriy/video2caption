@@ -9,7 +9,7 @@
 #SBATCH --output=%x_%j.out
 #SBATCH --signal=SIGUSR1@90
 #SBATCH --signal=SIGTERM@90
-#SBATCH --exclude ip-26-0-134-43,ip-26-0-131-108,ip-26-0-140-150,ip-26-0-143-39
+#SBATCH --exclude ip-26-0-134-43,ip-26-0-131-108,ip-26-0-140-150,ip-26-0-143-39,ip-26-0-128-136
 
 module load openmpi
 module load cuda/11.7
