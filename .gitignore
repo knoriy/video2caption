@@ -160,3 +160,6 @@ cython_debug/
 #.idea/
 
 test.ipynb
+*.tar
+*.out
+*.json
