@@ -107,9 +107,12 @@ def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
         audio_frames = ta.transforms.Resample(meta["audio_fps"], 48000)(audio_frames.unsqueeze(0))
 
         for chunk_index, chunk in enumerate(tqdm.tqdm(text["chunks"], desc=f"chunk")):
-            start_v_frame = int(chunk["timestamp"][0]*meta["video_fps"])
-            start_a_frame = int(chunk["timestamp"][0]*meta["audio_fps"])
-
+            try:
+                start_v_frame = int(chunk["timestamp"][0]*meta["video_fps"])
+                start_a_frame = int(chunk["timestamp"][0]*meta["audio_fps"])
+            except:
+                start_v_frame = 0
+                start_a_frame = 0
             try:
                 end_v_frame = int(chunk["timestamp"][1]*meta["video_fps"])
                 end_a_frame = int(chunk["timestamp"][1]*meta["audio_fps"])
@@ -180,6 +183,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     completed_path = f"completed_{'_'.join([os.path.basename(url) for url in args.urls])}.json"
+    print(completed_path)
 
     # catch signal
     signal.signal(signal.SIGTERM, partial(terminateProcess, filename=completed_path))
