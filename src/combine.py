@@ -4,6 +4,7 @@ import sys
 import PIL
 import json
 import tqdm
+import boto3
 import torch
 import open_clip
 import tarfile
@@ -15,6 +16,7 @@ import torchmetrics
 import torchvision as tv
 import torchaudio as ta
 
+ta.backend.set_audio_backend("soundfile")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 from datamodule import YoutubeTDM
@@ -76,7 +78,9 @@ def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
         exclude_list=exclude_list,
         )
     dataset.setup()
-
+    
+    s3 = boto3.client('s3')
+    bucket_name = 's-laion'
 
     whisperjax_model = FlaxWhisperPipline("openai/whisper-large-v2")
     model, _, transform = open_clip.create_model_and_transforms(
@@ -128,7 +132,10 @@ def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
             os.makedirs(os.path.join('processes', base_path), exist_ok=True)
 
             filename = os.path.join(base_path, f'{filename}')
-            with tarfile.open(os.path.join('processes', f"{filename}.tar"), mode='a') as tar:
+            object_key = os.path.join('knoriy/documentaries-videos/', f"{filename}.tar")
+
+            tar_butter = io.BytesIO()
+            with tarfile.open(fileobj=tar_butter, mode='w') as tar:
                 buffer = io.BytesIO()
                 ta.save(buffer, audio_frames[0][start_a_frame: end_a_frame].unsqueeze(0), resamplerate, format='flac')
                 buffer.seek(0)
@@ -157,6 +164,10 @@ def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
                 text_info = tarfile.TarInfo(f"{filename}_{chunk_index}.json")
                 text_info.size = buffer.getbuffer().nbytes
                 tar.addfile(text_info, fileobj=buffer)
+        
+        # Upload to S3
+        s3.put_object(Bucket=bucket_name, Key=object_key, Body=tar_butter.getvalue())
+
         complete.append({"filename":json_meta["filename"] ,"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
 
     return complete
