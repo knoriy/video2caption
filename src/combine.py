@@ -72,7 +72,7 @@ def get_video_frames(frames, strategy, threshold=0.5):
 
     return [(i, (frame.squeeze(0).permute(1,2,0)*255).type(torch.uint8)) for (i, frame) in video_frames]
 
-def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
+def main(urls:list[str], exclude_list:list[str]=[], completed_path='completed.json', strategy='ssim'):
     dataset = YoutubeTDM(
         train_urls=urls,
         exclude_list=exclude_list,
@@ -107,8 +107,10 @@ def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
         ###########
         # Resample Audio to be saved
         ###########
-        meta["audio_fps"] = resamplerate = 48000
         audio_frames = ta.transforms.Resample(meta["audio_fps"], 48000)(audio_frames.unsqueeze(0))
+        meta["audio_fps"] = resamplerate = 48000
+
+        print(json_meta["filename"])
 
         for chunk_index, chunk in enumerate(tqdm.tqdm(text["chunks"], desc=f"chunk")):
             try:
@@ -123,6 +125,13 @@ def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
             except:
                 end_v_frame = -1
                 end_a_frame = -1
+
+            start_chunk_timestamp = chunk["timestamp"][0]
+            end_chunk_timestamp = chunk["timestamp"][1]
+            if start_chunk_timestamp is None:
+                start_chunk_timestamp = 0
+            if end_chunk_timestamp is None:
+                end_chunk_timestamp = float('inf')
 
             frames = get_video_frames(video_frames[start_v_frame:end_v_frame], strategy, threshold=0.9)
 
@@ -146,8 +155,7 @@ def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
                 captions = {}
                 for frame_index, (i, frame) in enumerate(frames):
                     path = f"{filename}_{chunk_index}_{frame_index}.jpg"
-                    captions[frame_index] = {"framepath":path ,'frame':i+start_v_frame, "time": chunk["timestamp"][0] + (i/meta["video_fps"]), 'caption':inference_caption(model, transform, PIL.Image.fromarray(frame.numpy()))}
-                    
+                    captions[frame_index] = {"framepath":path ,'frame':i+start_v_frame, "time": start_chunk_timestamp + (i/meta["video_fps"]), 'caption':inference_caption(model, transform, PIL.Image.fromarray(frame.numpy()))}
                     buffer = io.BytesIO()
                     tv.utils.save_image(frame.permute(2,0,1)/255, buffer, format='jpeg')
                     buffer.seek(0)
@@ -169,6 +177,8 @@ def main(urls:list[str], exclude_list:list[str]=[], strategy='ssim'):
         s3.put_object(Bucket=bucket_name, Key=object_key, Body=tar_butter.getvalue())
 
         complete.append({"filename":json_meta["filename"] ,"key": json_meta["key"], "id":json_meta["yt_meta_dict"]["info"]["id"]})
+        with open(completed_path, "w") as f:
+            json.dump(complete, f)
 
     return complete
 
@@ -207,6 +217,7 @@ if __name__ == '__main__':
     except FileNotFoundError:
         exclude_list = []
 
+    pprint.pprint(exclude_list)
 
-    pprint.pprint(main(args.urls, exclude_list=exclude_list))
+    pprint.pprint(main(args.urls, exclude_list=exclude_list, completed_path=completed_path))
     terminateProcess(None, None)

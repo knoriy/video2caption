@@ -28,4 +28,4 @@ export FI_PROVIDER=efa
 export FI_EFA_TX_MIN_CREDITS=64
 export NCCL_TREE_THRESHOLD=0
 
-srun /fsx/home-knoriy/miniconda3/envs/hf/bin/python /fsx/knoriy/code/video2caption/src/combine.py --urls "s3://s-laion/documentaries-videos/00002"
+srun /fsx/home-knoriy/miniconda3/envs/hf/bin/python /fsx/knoriy/code/video2caption/src/combine.py --urls "s3://s-laion/documentaries-videos/00005"
