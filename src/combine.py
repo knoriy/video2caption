@@ -164,10 +164,6 @@ def main(urls:list[str], exclude_list:list[str]=[], completed_path='completed.js
                 text_info = tarfile.TarInfo(f"{filename}_{chunk_index}.json")
                 text_info.size = buffer.getbuffer().nbytes
                 tar.addfile(text_info, fileobj=buffer)
-        with open("test.tar", "wb") as f:
-            f.write(tar_butter.getvalue())
-
-        breakpoint()
         # Upload to S3
         s3.put_object(Bucket=bucket_name, Key=object_key, Body=tar_butter.getvalue())
 
