@@ -95,11 +95,7 @@ def main(urls:list[str], exclude_list:list[str]=[], completed_path='completed.js
         (video_frames, audio_frames, meta), json_meta = video
         del json_meta['yt_meta_dict']['subtitles']
 
-        if audio_frames.size(0) > 1:
-            audio_frames = ((audio_frames[0] + audio_frames[1]) / 2 )
-        else:
-            audio_frames = audio_frames[0]
-
+        audio_frames = torch.mean(audio_frames, dim=0)
         audio_sample = {"array": audio_frames.numpy(), 'sampling_rate':meta["audio_fps"]}
 
         text = whisperjax_model(audio_sample, return_timestamps=True)
@@ -112,39 +108,35 @@ def main(urls:list[str], exclude_list:list[str]=[], completed_path='completed.js
 
         print(json_meta["filename"])
 
-        for chunk_index, chunk in enumerate(tqdm.tqdm(text["chunks"], desc=f"chunk")):
-            try:
-                start_v_frame = int(chunk["timestamp"][0]*meta["video_fps"])
-                start_a_frame = int(chunk["timestamp"][0]*meta["audio_fps"])
-            except:
-                start_v_frame = 0
-                start_a_frame = 0
-            try:
-                end_v_frame = int(chunk["timestamp"][1]*meta["video_fps"])
-                end_a_frame = int(chunk["timestamp"][1]*meta["audio_fps"])
-            except:
-                end_v_frame = -1
-                end_a_frame = -1
+        base_path, filename = json_meta["filename"].split("/")
+        filename = os.path.join(base_path, f'{filename}')
+        object_key = os.path.join('knoriy/documentaries-videos/', f"{filename}.tar")
 
-            start_chunk_timestamp = chunk["timestamp"][0]
-            end_chunk_timestamp = chunk["timestamp"][1]
-            if start_chunk_timestamp is None:
-                start_chunk_timestamp = 0
-            if end_chunk_timestamp is None:
-                end_chunk_timestamp = float('inf')
+        tar_butter = io.BytesIO()
+        with tarfile.open(fileobj=tar_butter, mode='w') as tar:
+            for chunk_index, chunk in enumerate(tqdm.tqdm(text["chunks"], desc=f"chunk")):
+                try:
+                    start_v_frame = int(chunk["timestamp"][0]*meta["video_fps"])
+                    start_a_frame = int(chunk["timestamp"][0]*meta["audio_fps"])
+                except:
+                    start_v_frame = 0
+                    start_a_frame = 0
+                try:
+                    end_v_frame = int(chunk["timestamp"][1]*meta["video_fps"])
+                    end_a_frame = int(chunk["timestamp"][1]*meta["audio_fps"])
+                except:
+                    end_v_frame = -1
+                    end_a_frame = -1
 
-            frames = get_video_frames(video_frames[start_v_frame:end_v_frame], strategy, threshold=0.9)
+                start_chunk_timestamp = chunk["timestamp"][0]
+                end_chunk_timestamp = chunk["timestamp"][1]
+                if start_chunk_timestamp is None:
+                    start_chunk_timestamp = 0
+                if end_chunk_timestamp is None:
+                    end_chunk_timestamp = float('inf')
 
-            # save audio chunk
+                frames = get_video_frames(video_frames[start_v_frame:end_v_frame], strategy, threshold=0.9)
 
-            base_path, filename = json_meta["filename"].split("/")
-            os.makedirs(os.path.join('processes', base_path), exist_ok=True)
-
-            filename = os.path.join(base_path, f'{filename}')
-            object_key = os.path.join('knoriy/documentaries-videos/', f"{filename}.tar")
-
-            tar_butter = io.BytesIO()
-            with tarfile.open(fileobj=tar_butter, mode='w') as tar:
                 buffer = io.BytesIO()
                 ta.save(buffer, audio_frames[0][start_a_frame: end_a_frame].unsqueeze(0), resamplerate, format='flac')
                 buffer.seek(0)
@@ -172,7 +164,10 @@ def main(urls:list[str], exclude_list:list[str]=[], completed_path='completed.js
                 text_info = tarfile.TarInfo(f"{filename}_{chunk_index}.json")
                 text_info.size = buffer.getbuffer().nbytes
                 tar.addfile(text_info, fileobj=buffer)
-        
+        with open("test.tar", "wb") as f:
+            f.write(tar_butter.getvalue())
+
+        breakpoint()
         # Upload to S3
         s3.put_object(Bucket=bucket_name, Key=object_key, Body=tar_butter.getvalue())
 
