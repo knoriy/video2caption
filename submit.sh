@@ -10,6 +10,7 @@
 #SBATCH --requeue
 #SBATCH --signal=SIGUSR1@90
 #SBATCH --signal=SIGTERM@90
+#SBTACH --export=ip-26-0-128-46
 
 module load openmpi
 module load cuda/11.7

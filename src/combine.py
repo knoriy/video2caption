@@ -41,17 +41,17 @@ def inference_caption(model, transform, image, decoding_method="Beam search", re
     return open_clip.decode(generated[0].detach()).split("<end_of_text>")[0].replace("<start_of_text>", "")
 
 
-def get_strategy(strategy:str='mse'):
+def get_strategy(strategy:str='mse', device:str='cpu'):
     if strategy == 'mse':
-        return torch.nn.MSELoss()
+        return torch.nn.MSELoss().to(device)
     elif strategy == 'ssim':
-        return torchmetrics.StructuralSimilarityIndexMeasure()
+        return torchmetrics.StructuralSimilarityIndexMeasure().to(device)
     else:
         raise ValueError(f"Strategy {strategy} not supported")
 
 
 def get_video_frames(frames, strategy, threshold=0.5):
-
+    device = strategy.device
     frames = (frames/255).unsqueeze(1).permute(0,1,4,2,3)
 
     video_frames = []
@@ -62,13 +62,13 @@ def get_video_frames(frames, strategy, threshold=0.5):
         if not len(video_frames):
             video_frames.append((i, frame))
 
-        difference = strategy(video_frames[-1][1], frame)
+        difference = strategy(video_frames[-1][1].to(device), frame.to(device))
 
         if strategy == 'mse':
             difference = 1-difference
 
         if difference > threshold:
-            video_frames.append((i, frame))
+            video_frames.append((i, frame.detach().cpu()))
 
     return [(i, (frame.squeeze(0).permute(1,2,0)*255).type(torch.uint8)) for (i, frame) in video_frames]
 
@@ -89,7 +89,7 @@ def main(urls:list[str], exclude_list:list[str]=[], completed_path='completed.js
     )
     model.to(device)
 
-    strategy = get_strategy(strategy)
+    strategy = get_strategy(strategy, device)
 
     for video in tqdm.tqdm(dataset.train, desc=f"Processing videos"):
         (video_frames, audio_frames, meta), json_meta = video
